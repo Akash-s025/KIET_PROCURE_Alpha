@@ -598,6 +598,9 @@ input:focus, select:focus {
               <th>Amount to Pay</th>
               <th>Terms to Pay</th>
               <th>Action</th>
+              <th>Indentor</th>
+              
+              
             </tr>
           </thead>
           <tbody id="accountTableBody">
@@ -985,14 +988,27 @@ input:focus, select:focus {
         const emailBtn = document.createElement('button');
         emailBtn.className = 'email-btn';
         emailBtn.textContent = 'Send Email';
+        let emailSent = false;
         emailBtn.onclick = () => {
-          if (confirm('Send email to requested by email?')) {
-            sendEmailRequest(item, emailBtn);
+          const prompt = emailSent
+            ? 'Resend the decision email to the indentor?'
+            : 'Send email to the indentor?';
+          if (confirm(prompt)) {
+            sendEmailRequest(item, emailBtn, () => emailSent, (sent) => {
+              emailSent = sent;
+            });
           }
         };
         actionTd.appendChild(emailBtn);
 
         tr.appendChild(actionTd);
+
+        // Indentor
+        const indentorTd = document.createElement('td');
+        indentorTd.setAttribute('data-label', 'Indentor');
+        indentorTd.textContent = item.ordered_by || 'N/A';
+        tr.appendChild(indentorTd);
+
         tbody.appendChild(tr);
       });
     }
@@ -1385,11 +1401,15 @@ input:focus, select:focus {
   window.location.href = `/api/inventory-invoice/${poNumber}`;
 }
 
-    async function sendEmailRequest(item, button) {
+    async function sendEmailRequest(item, button, wasSent, setSent) {
       if (!item.id) {
         showError('Order ID not found');
         return;
       }
+
+      const alreadySent = wasSent();
+      button.disabled = true;
+      button.textContent = 'Sending...';
 
       try {
         const response = await fetch(`/api/send-email/${item.id}`, {
@@ -1409,15 +1429,18 @@ input:focus, select:focus {
         const result = await response.json();
 
         if (result.success) {
+          setSent(true);
           button.className = 'email-sent';
-          button.textContent = 'Email Sent';
-          button.disabled = true;
-          showSuccess();
+          button.textContent = 'Resend Email';
+          button.disabled = false;
+          showSuccess(alreadySent ? 'Email resent successfully.' : 'Email sent successfully.');
         } else {
           throw new Error('Email sending failed');
         }
       } catch (error) {
         console.error('Error sending email:', error);
+        button.textContent = alreadySent ? 'Resend Email' : 'Send Email';
+        button.disabled = false;
         showError(error.message || 'Error sending email');
       }
     }

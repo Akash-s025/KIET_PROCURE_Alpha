@@ -1363,6 +1363,7 @@ app.get("/api/account-details", async (req, res) => {
         po.id as id,
         po.po_number as po_number,
         po.supplier_name,
+        po.ordered_by,
         po.terms_of_payment,
         po.total_amount as amount,
         ie.supplier_account_number,
@@ -1410,6 +1411,26 @@ app.get("/api/account-details", async (req, res) => {
   }
 });
 
+const ensureAccountEmailDecisionsTable = () => pool.query(`
+  CREATE TABLE IF NOT EXISTS account_email_decisions (
+    token_hash TEXT PRIMARY KEY,
+    purchase_order_id INTEGER NOT NULL,
+    ordered_by TEXT NOT NULL,
+    po_number TEXT,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    decision TEXT
+  )
+`);
+
+const escapeEmailHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+}[char]));
+
 //newly added for sending mail in account.ejs
 
 app.post("/api/send-email/:id", async (req, res) => {
@@ -1419,6 +1440,7 @@ app.post("/api/send-email/:id", async (req, res) => {
 
   try {
     const { id } = req.params;
+    await ensureAccountEmailDecisionsTable();
 
     // Fetch order details
     const orderResult = await pool.query(
@@ -1431,31 +1453,59 @@ app.post("/api/send-email/:id", async (req, res) => {
     }
 
     const { ordered_by, po_number } = orderResult.rows[0];
+    if (!ordered_by) {
+      return res.status(400).json({ error: "Indentor email not found" });
+    }
 
-    // Send email
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    await pool.query(
+      `INSERT INTO account_email_decisions
+        (token_hash, purchase_order_id, ordered_by, po_number, expires_at)
+       VALUES ($1, $2, $3, $4, NOW() + INTERVAL '7 days')`,
+      [tokenHash, id, ordered_by, po_number]
+    );
+
+    // Send email for approval/rejection/hold decision for the payments of the suppliers from the indentor
     const transporte = nodemailer.createTransport({
-      host: "smtp.office365.com",
+      //host: "smtp.office365.com",
+      host: "smtp.gmail.com",
       port: 587,
       secure: false, // STARTTLS
       auth: {
-        user: "No-reply@kietsindia.com",
-        pass: process.env.NO_PASSWORD,
+        //user: "No-reply@kietsindia.com",
+        //pass: process.env.NO_PASSWORD,
+        user: "la4400512@gmail.com",
+        pass: "zsfs dvwg peso xokp",
       },
       tls: {
         rejectUnauthorized: false,
       },
     });
 
+    const appBaseUrl = (process.env.APP_BASE_URL || "https://kietprocure.com").replace(/\/$/, "");
+    const decisionButtons = [
+      { status: "approve", label: "Approve", color: "#15803d" },
+      { status: "reject", label: "Reject", color: "#b91c1c" },
+      { status: "hold", label: "Hold", color: "#a16207" },
+    ].map(({ status, label, color }) =>
+      `<a href="${appBaseUrl}/api/email-decision/${token}/${status}" ` +
+      `style="display:inline-block;margin:8px 6px;padding:12px 22px;background:${color};` +
+      `color:#fff;text-decoration:none;border-radius:4px;font-weight:bold">${label}</a>`
+    ).join("");
     const mailSubject = "Payment Notification - KIET Technologies";
     const mailBody = `
-      <p>Hello ${ordered_by},</p>
-      <p>Your payment for PO ${po_number} has been processing,Could you Please send Confirmation email to accounts@kietsindia.com.</p>
+      <p>Hello ${escapeEmailHtml(ordered_by)},</p>
+      <p>Please select a status for purchase order ${escapeEmailHtml(po_number || id)}:</p>
+      <p>${decisionButtons}</p>
+      <p>Your selection will be sent to accounts@kietsindia.com. This link expires in 7 days.</p>
       <p>Thank you,<br>The KIET Technologies Team</p>
     `;
 
     await transporte.sendMail({
       to: ordered_by,
-      from: "No-reply@kietsindia.com",
+      //from: "No-reply@kietsindia.com",
+      from: "la4400512@gmail.com",
       subject: mailSubject,
       html: mailBody,
     });
@@ -1464,6 +1514,70 @@ app.post("/api/send-email/:id", async (req, res) => {
   } catch (error) {
     console.error("Error sending email:", error);
     res.status(500).json({ error: "Failed to send email" });
+  }
+});
+
+app.get("/api/email-decision/:token/:decision", async (req, res) => {
+  const { token, decision } = req.params;
+  const validDecisions = ["approve", "reject", "hold"];
+  let tokenHash;
+  if (!/^[a-f0-9]{64}$/i.test(token) || !validDecisions.includes(decision)) {
+    return res.status(400).send("Invalid decision link.");
+  }
+
+  try {
+    await ensureAccountEmailDecisionsTable();
+    tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const result = await pool.query(
+      `UPDATE account_email_decisions
+       SET used_at = NOW(), decision = $2
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+       RETURNING ordered_by, po_number, purchase_order_id`,
+      [tokenHash, decision]
+    );
+    if (result.rows.length === 0) {
+      return res.status(410).send("This decision link has expired or has already been used.");
+    }
+
+    //changed the user name and password for sending mail from office365 to gmail
+    //need to change while pushing code to github as the password is in plain text
+
+
+
+    const { ordered_by, po_number, purchase_order_id } = result.rows[0];
+    const transporte = nodemailer.createTransport({
+      //host: "smtp.office365.com",
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: {
+        //user: "No-reply@kietsindia.com",
+        //pass: process.env.NO_PASSWORD,
+        user: "la4400512@gmail.com",
+        pass: "zsfs dvwg peso xokp",
+      },
+      tls: { rejectUnauthorized: false },
+    });
+    const formattedDecision = decision.charAt(0).toUpperCase() + decision.slice(1);
+    await transporte.sendMail({
+      from: "la4400512@gmail.com",
+      to: "accounts@kietsindia.com",
+      subject: `PO ${po_number || purchase_order_id}: ${formattedDecision} by indentor`,
+      text: `The indentor ${ordered_by} selected ${formattedDecision} for purchase order ${po_number || purchase_order_id}.`,
+      html: `<p>The indentor <strong>${escapeEmailHtml(ordered_by)}</strong> selected <strong>${formattedDecision}</strong> ` +
+        `for purchase order <strong>${escapeEmailHtml(po_number || purchase_order_id)}</strong>.</p>`,
+    });
+
+    res.send(`Your response (${formattedDecision}) has been sent to Accounts.`);
+  } catch (error) {
+    if (tokenHash) {
+      await pool.query(
+        "UPDATE account_email_decisions SET used_at = NULL, decision = NULL WHERE token_hash = $1",
+        [tokenHash]
+      ).catch((resetError) => console.error("Could not restore decision link:", resetError));
+    }
+    console.error("Error processing indentor decision:", error);
+    res.status(500).send("Could not send your response to Accounts. Please contact them directly.");
   }
 });
 
