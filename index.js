@@ -1483,13 +1483,16 @@ app.post("/api/send-email/:id", async (req, res) => {
       },
     });
 
-    const appBaseUrl = (process.env.APP_BASE_URL || "https://kietprocure.com").replace(/\/$/, "");
+    const BASE_URL = (process.env.BASE_URL || process.env.APP_BASE_URL || "https://kietprocure.com").replace(/\/$/, "");
+    const approveUrl = `${BASE_URL}/api/email-decision/${token}/approve`;
+    const rejectUrl = `${BASE_URL}/api/email-decision/${token}/reject`;
+    const holdUrl = `${BASE_URL}/api/email-decision/${token}/hold`;
     const decisionButtons = [
-      { status: "approve", label: "Approve", color: "#15803d" },
-      { status: "reject", label: "Reject", color: "#b91c1c" },
-      { status: "hold", label: "Hold", color: "#a16207" },
-    ].map(({ status, label, color }) =>
-      `<a href="${appBaseUrl}/api/email-decision/${token}/${status}" ` +
+      { url: approveUrl, label: "Approve", color: "#15803d" },
+      { url: rejectUrl, label: "Reject", color: "#b91c1c" },
+      { url: holdUrl, label: "Hold", color: "#a16207" },
+    ].map(({ url, label, color }) =>
+      `<a href="${url}" ` +
       `style="display:inline-block;margin:8px 6px;padding:12px 22px;background:${color};` +
       `color:#fff;text-decoration:none;border-radius:4px;font-weight:bold">${label}</a>`
     ).join("");
@@ -1517,6 +1520,7 @@ app.post("/api/send-email/:id", async (req, res) => {
   }
 });
 
+console.log("registering email decision route");
 app.get("/api/email-decision/:token/:decision", async (req, res) => {
   const { token, decision } = req.params;
   const validDecisions = ["approve", "reject", "hold"];
@@ -9880,4 +9884,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
-
