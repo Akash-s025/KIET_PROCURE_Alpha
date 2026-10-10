@@ -1483,7 +1483,8 @@ app.post("/api/send-email/:id", async (req, res) => {
       },
     });
 
-    const BASE_URL = (process.env.BASE_URL || process.env.APP_BASE_URL || "https://kietprocure.com").replace(/\/$/, "");
+   // const BASE_URL = (process.env.BASE_URL || process.env.APP_BASE_URL || "https://kietprocure.com").replace(/\/$/, "");
+   const BASE_URL = "http://3.108.63.213";
     const approveUrl = `${BASE_URL}/api/email-decision/${token}/approve`;
     const rejectUrl = `${BASE_URL}/api/email-decision/${token}/reject`;
     const holdUrl = `${BASE_URL}/api/email-decision/${token}/hold`;
