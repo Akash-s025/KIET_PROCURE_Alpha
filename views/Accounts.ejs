@@ -986,9 +986,9 @@ input:focus, select:focus {
 
         // Send Email button
         const emailBtn = document.createElement('button');
-        emailBtn.className = 'email-btn';
-        emailBtn.textContent = 'Send Email';
-        let emailSent = false;
+        let emailSent = item.email_sent === true;
+        emailBtn.className = emailSent ? 'email-sent' : 'email-btn';
+        emailBtn.textContent = emailSent ? 'Resend Email' : 'Send Email';
         emailBtn.onclick = () => {
           const prompt = emailSent
             ? 'Resend the decision email to the indentor?'

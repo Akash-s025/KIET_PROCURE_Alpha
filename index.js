@@ -1357,6 +1357,8 @@ app.get("/api/account-details", async (req, res) => {
   }
 
   try {
+    await ensureAccountEmailDecisionsTable();
+
     // Build the base query to fetch purchase orders with status 'sent', left join with inventory_entries for bank details
     let query = `
       SELECT
@@ -1368,7 +1370,12 @@ app.get("/api/account-details", async (req, res) => {
         po.total_amount as amount,
         ie.supplier_account_number,
         ie.supplier_account_name,
-        ie.supplier_ifsc_code
+        ie.supplier_ifsc_code,
+        EXISTS (
+          SELECT 1
+          FROM account_email_decisions aed
+          WHERE aed.purchase_order_id = po.id
+        ) AS email_sent
       FROM purchase_orders po
       LEFT JOIN inventory_entries ie ON po.id = ie.purchase_order_id
       WHERE po.status ='inventory_processed'
@@ -1484,7 +1491,7 @@ app.post("/api/send-email/:id", async (req, res) => {
     });
 
    // const BASE_URL = (process.env.BASE_URL || process.env.APP_BASE_URL || "https://kietprocure.com").replace(/\/$/, "");
-   const BASE_URL = "http://3.108.63.213";
+   const BASE_URL = "http://65.2.80.144:3000";
     const approveUrl = `${BASE_URL}/api/email-decision/${token}/approve`;
     const rejectUrl = `${BASE_URL}/api/email-decision/${token}/reject`;
     const holdUrl = `${BASE_URL}/api/email-decision/${token}/hold`;
